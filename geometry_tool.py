@@ -1,8 +1,12 @@
-"""
-Created on Mon Aug 16 13:23:31 2021
-
-@author: jack
-"""
+############################################################################
+#
+# AUTHOR:       Jack Beagley, Geophysics Lab, Otago University August 2021
+# PURPOSE:      Process the navigation files to determine the geometry of
+#				a marine seismic survey. Can optionally take into account
+#				picked direct arrivals during geometry processing to more
+#				accurately bin traces into CDPs
+#
+#############################################################################
 
 import math
 import matplotlib.pyplot as plt
