@@ -7,8 +7,9 @@
 #				picked direct arrivals during geometry processing to more
 #				accurately bin traces into CDPs
 #
-#############################################################################
+############################################################################
 
+import argparse
 import enum
 import math
 import matplotlib.pyplot as plt
@@ -16,6 +17,7 @@ import numpy as np
 import ogr, osr
 import pandas as pd
 import re
+import sys
 
 from scipy.interpolate import splprep, splev
 
@@ -220,267 +222,284 @@ def read_offsets(f, first_shot, n_shots, n_channels, c = 1500.0):
 
 	return offsets_direct
 
-# spatial reference system
-input_EPSG = 4326
-output_EPSG = 2193
+def main():
+	argparser = argparse.ArgumentParser()
 
-# create coordinate transformation
-in_spatial_ref = osr.SpatialReference()
-in_spatial_ref.ImportFromEPSG(input_EPSG)
+	argparser.add_argument('in', metavar='in', help='path for the input navigation file')	
+	argparser.add_argument('out', metavar='out', help='path for the output header file')	
 
-out_spatial_ref = osr.SpatialReference()
-out_spatial_ref.ImportFromEPSG(output_EPSG)
+	argparser.add_argument('--epsg-in', dest='epsg_in', help='EPSG code for the input coordinate system (default: 4326)', type=int, default=4326)
+	argparser.add_argument('--epsg-out', dest='epsg_out', help='EPSG code for the output coordinate system (default: 2193)', type=int, default=2193)
+	argparser.add_argument('--direct', dest='file_direct', help='path for the picked direct arrivals')
+	argparser.add_argument('--plot', action='store_true', help='turn on plotting')
 
-coord_transform = osr.CoordinateTransformation(in_spatial_ref, out_spatial_ref)
+	args = argparser.parse_args()
 
-# Directories
-nav_dir = "/errigal_data/jack/claritas/data/21PL0415_Dusky_Sound/from_geode"
-offset_dir = "/home/jack/jobs/21PL0415_Dusky/COMMON/STATICS"
-header_out_dir = "/home/jack/jobs/21PL0415_Dusky/COMMON/HEADERS"
+	# spatial reference system
+	input_EPSG = args.epsg_in
+	output_EPSG = args.epsg_out
 
-# Boomer properties
-boomer_offset_x = 9.71
-boomer_offset_y = -36.64
-boomer_offset = np.array([-boomer_offset_x, boomer_offset_y])
+	# create coordinate transformation
+	in_spatial_ref = osr.SpatialReference()
+	in_spatial_ref.ImportFromEPSG(input_EPSG)
 
-# Streamer properties
-streamer_offset_x = -0.89
-streamer_offset_y = -37.8 # -36.64 - 1.16
-streamer_offset = np.array([-streamer_offset_x, streamer_offset_y])
-streamer_spacing = 3.125
-n_channels = 24
+	out_spatial_ref = osr.SpatialReference()
+	out_spatial_ref.ImportFromEPSG(output_EPSG)
 
-# CDP spacing
-cdp_spacing = 2.0
+	coord_transform = osr.CoordinateTransformation(in_spatial_ref, out_spatial_ref)
 
-line_number = "0004"
+	# Directories
+	nav_dir = "/errigal_data/jack/claritas/data/21PL0415_Dusky_Sound/from_geode"
+	offset_dir = "/home/jack/jobs/21PL0415_Dusky/COMMON/STATICS"
+	header_out_dir = "/home/jack/jobs/21PL0415_Dusky/COMMON/HEADERS"
 
-line_df = pd.read_csv((nav_dir + "/line%s.Nav_parsed.txt") % line_number, sep='\s+', names = ['shot', 'lon_deg', 'lon_min', 'lon_ew', 'lat_deg', 'lat_min', 'lat_ns', 'time'], skiprows=1)
-line_offsets_f = open((offset_dir + "/line%s.pic") % line_number)
+	# Boomer properties
+	boomer_offset_x = 9.71
+	boomer_offset_y = -36.64
+	boomer_offset = np.array([-boomer_offset_x, boomer_offset_y])
 
-n_shots = len(line_df.index)
-n_records = n_shots * n_channels
+	# Streamer properties
+	streamer_offset_x = -0.89
+	streamer_offset_y = -37.8 # -36.64 - 1.16
+	streamer_offset = np.array([-streamer_offset_x, streamer_offset_y])
+	streamer_spacing = 3.125
+	n_channels = 24
 
-first_shot = line_df['shot'].iloc[0]
-last_shot = line_df['shot'].iloc[-1]
+	# CDP spacing
+	cdp_spacing = 2.0
 
-print('1\tReading direct arrivals...')
+	line_number = "0004"
 
-offsets_direct = read_offsets(line_offsets_f, first_shot, n_shots, n_channels)
+	line_df = pd.read_csv((nav_dir + "/line%s.Nav_parsed.txt") % line_number, sep='\s+', names = ['shot', 'lon_deg', 'lon_min', 'lon_ew', 'lat_deg', 'lat_min', 'lat_ns', 'time'], skiprows=1)
+	line_offsets_f = open((offset_dir + "/line%s.pic") % line_number)
 
-line_df['lon_dd'] = line_df['lon_deg'] + line_df['lon_min'] / 60
-line_df['lat_dd'] = -(line_df['lat_deg'] + line_df['lat_min'] / 60)
+	n_shots = len(line_df.index)
+	n_records = n_shots * n_channels
 
-print('2\tReprojecting shotpoint coordinates...')
-
-for new_col in ['easting', 'northing', 'heading', 'boomer_e', 'boomer_n', 'streamer_e', 'streamer_n']:
-	line_df[new_col] = pd.Series(dtype=float)
-
-for i in range(n_shots):
-	shotpoint = ogr.Geometry(ogr.wkbPoint)
-	shotpoint.AddPoint(line_df['lon_dd'].iloc[i], line_df['lat_dd'].iloc[i])
-	shotpoint.Transform(coord_transform)
-
-	line_df.ix[i,'easting'] = shotpoint.GetX()
-	line_df.ix[i,'northing'] = shotpoint.GetY()
-
-line_df['easting_filt'] = line_df['easting'].rolling(5, center=True, min_periods=1).mean()
-line_df['northing_filt'] = line_df['northing'].rolling(5, center=True, min_periods=1).mean()
-
-print('3\tCalculating heading...')
-
-for i in range(1, n_shots):
-	diff_x = line_df['easting_filt'].iloc[i] - line_df['easting_filt'].iloc[i - 1]
-	diff_y = line_df['northing_filt'].iloc[i] - line_df['northing_filt'].iloc[i - 1]
-
-	line_df.ix[i, 'heading'] = (math.degrees(math.atan2(diff_x, diff_y)) + 360.0) % 360.0
-
-line_df.ix[0, 'heading'] = line_df.ix[1, 'heading']
-
-print('4\tCalculating boomer, streamer locations...')
-
-for i in range(n_shots):
-	boomer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), boomer_offset)
-	streamer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), streamer_offset)
+	first_shot = line_df['shot'].iloc[0]
+	last_shot = line_df['shot'].iloc[-1]
 	
-	line_df.ix[i, 'boomer_e'] = line_df['easting_filt'].iloc[i] + boomer_offset_rotated[0]
-	line_df.ix[i, 'boomer_n'] = line_df['northing_filt'].iloc[i] + boomer_offset_rotated[1]
+	print('1\tReading direct arrivals...')
 
-	line_df.ix[i, 'streamer_e'] = line_df['easting_filt'].iloc[i] + streamer_offset_rotated[0]
-	line_df.ix[i, 'streamer_n'] = line_df['northing_filt'].iloc[i] + streamer_offset_rotated[1]
+	offsets_direct = read_offsets(line_offsets_f, first_shot, n_shots, n_channels)
 
-# Make arrays for midpoints
-mps_e = np.empty((n_shots, n_channels))
-mps_n = np.empty_like(mps_e)
-offset_estimates = np.empty_like(mps_e)
+	line_df['lon_dd'] = line_df['lon_deg'] + line_df['lon_min'] / 60
+	line_df['lat_dd'] = -(line_df['lat_deg'] + line_df['lat_min'] / 60)
 
-print('5\tCalculating CMP locations...')
+	print('2\tReprojecting shotpoint coordinates from EPSG:%i to EPSG:%i...' % (input_EPSG, output_EPSG))
 
-for i in range(n_shots):
-	shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
+	for new_col in ['easting', 'northing', 'heading', 'boomer_e', 'boomer_n', 'streamer_e', 'streamer_n']:
+		line_df[new_col] = pd.Series(dtype=float)
 
-	for j in range(n_channels):
-		record_en = get_hydrophone_location(line_df, i, j + 1)
-		mp_en = (record_en + shot_en) / 2.0
-		mps_e[i, j] = mp_en[0]
-		mps_n[i, j] = mp_en[1]
+	for i in range(n_shots):
+		shotpoint = ogr.Geometry(ogr.wkbPoint)
+		shotpoint.AddPoint(line_df['lon_dd'].iloc[i], line_df['lat_dd'].iloc[i])
+		shotpoint.Transform(coord_transform)
+
+		line_df.ix[i,'easting'] = shotpoint.GetX()
+		line_df.ix[i,'northing'] = shotpoint.GetY()
+
+	line_df['easting_filt'] = line_df['easting'].rolling(5, center=True, min_periods=1).mean()
+	line_df['northing_filt'] = line_df['northing'].rolling(5, center=True, min_periods=1).mean()
+
+	print('3\tCalculating heading...')
+
+	for i in range(1, n_shots):
+		diff_x = line_df['easting_filt'].iloc[i] - line_df['easting_filt'].iloc[i - 1]
+		diff_y = line_df['northing_filt'].iloc[i] - line_df['northing_filt'].iloc[i - 1]
+
+		line_df.ix[i, 'heading'] = (math.degrees(math.atan2(diff_x, diff_y)) + 360.0) % 360.0
+
+	line_df.ix[0, 'heading'] = line_df.ix[1, 'heading']
+
+	print('4\tCalculating boomer, streamer locations...')
+
+	for i in range(n_shots):
+		boomer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), boomer_offset)
+		streamer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), streamer_offset)
 		
-		offset_estimates[i, j] = np.sqrt(sum((shot_en - record_en)**2))
-	
-print('6\tFitting CDP spline...')
+		line_df.ix[i, 'boomer_e'] = line_df['easting_filt'].iloc[i] + boomer_offset_rotated[0]
+		line_df.ix[i, 'boomer_n'] = line_df['northing_filt'].iloc[i] + boomer_offset_rotated[1]
 
-# Fit a spline along the middle channel
-pts = np.vstack((mps_e[:, n_channels//2].flatten(), mps_n[:, n_channels//2].flatten()))
-s_spl = n_shots / 100.0
-(tck, u_eval), fp, ier, msg = splprep(pts, u=None, per=0, k=3, full_output=True, s = s_spl)
-print('\tSpline fit score is %.3f' % fp) 
-cdp_e_eval, cdp_n_eval = splev(u_eval, tck, der=0)
+		line_df.ix[i, 'streamer_e'] = line_df['easting_filt'].iloc[i] + streamer_offset_rotated[0]
+		line_df.ix[i, 'streamer_n'] = line_df['northing_filt'].iloc[i] + streamer_offset_rotated[1]
 
-cdp_length = get_line_length(cdp_e_eval, cdp_n_eval)
+	# Make arrays for midpoints
+	mps_e = np.empty((n_shots, n_channels))
+	mps_n = np.empty_like(mps_e)
+	offset_estimates = np.empty_like(mps_e)
 
-print('\tCDP spline is %.0fm long' % cdp_length)
+	print('5\tCalculating CMP locations...')
 
-u_cdp = np.arange(0.0, 1.0, cdp_spacing / cdp_length)
-n_cdps = len(u_cdp)
-cdps = range(1, n_cdps + 1)
-cdp_fold = np.empty_like(cdps)
-cdp_e, cdp_n = splev(u_cdp, tck, der=0)
+	for i in range(n_shots):
+		shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
 
-print('7\tBinning shots into CDPs...')
-
-record_cdp_indices = np.zeros_like(mps_e, dtype=int)
-record_cdps = np.zeros_like(mps_e, dtype=int)
-cdp_tracecount = np.zeros_like(cdps, dtype=int)
-record_cdptrace = np.zeros_like(mps_e, dtype=int)
-offset_final = np.zeros_like(mps_e, dtype=int)
-
-for i in range(n_shots):
-	shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
-
-	for j in range(n_channels):
-		# Get the midpoint for the record
-		record_en = np.array([mps_e[i, j], mps_n[i, j]])
-	
-		# If a direct arrival has been picked, update the midpoint location
-		if not np.isnan(offsets_direct[i, j]):
-			# Move the record along the line between it and the shotpoint to correct for the offset
-			record_en = shot_en + (record_en - shot_en) * (offsets_direct[i, j] / offset_estimates[i, j])
-
-			offset_final[i, j] = -int(offsets_direct[i, j] * 10)
-		else:
-			offset_final[i, j] = -int(offset_estimates[i, j] * 10)
-
-		cdp_distance_e = cdp_e - record_en[0]
-		cdp_distance_n = cdp_n - record_en[1]
-
-		cdp_distances = np.sqrt(cdp_distance_e**2 + cdp_distance_n**2)
-
-		record_cdp_indices[i, j] = np.argmin(cdp_distances)
-		record_cdps[i, j] = cdps[record_cdp_indices[i, j]]
-
-		cdp_tracecount[record_cdp_indices[i, j]] = cdp_tracecount[record_cdp_indices[i, j]] + 1
-		record_cdptrace[i, j] = cdp_tracecount[record_cdp_indices[i, j]]
-
-print('8\tCalculating fold...')
-
-for i in range(n_cdps):
-	cdp_fold[i] = np.sum((record_cdps == cdps[i]).flatten())
-
-print('9\tWriting out *.ahl file...')
-
-f_acd = open('%s/line%s.acd' % (header_out_dir, line_number), 'w')
-
-f_acd.write('''\
-|Header name  |Key|FirstCol|LastCol|Scalar |Adder  |FillMode|Comment          |
- SHOTID        P   1        6                                                  
- CHANNEL       S   7        10                                                 
- CDP               11       16                                                 
- CDPTRACE          17       20                                                 
- CDP_X             21       30                                                 
- CDP_Y             31       40                                                 
- OFFSET            41       46                                                 ''')
-
-f_acd.close()
-
-f_header = open('%s/line%s.txt' % (header_out_dir, line_number), 'w')
-f_ahl = open('%s/line%s.ahl' % (header_out_dir, line_number), 'w')
-
-f_ahl.write('''\
-ADDHDR
-Primary key : SHOTID
-Secondary key : CHANNEL
-Interpolation key : 
-Add geometry from PYTHON script\n\
-''')
-f_ahl.write('|Pkey  |Skey  |X1    |X2  |X3        |X4        |X5    |\n')
-
-for i in range(n_shots):
-	for j in range(n_channels):
-		record_cdp = record_cdps[i, j]
-		record_cdp_index = record_cdp_indices[i, j]
-		cdp_en = np.array([cdp_e[record_cdp_index], cdp_n[record_cdp_index]])
-		cdp_en_dm = np.rint(cdp_en * 10.0).astype(int)
-
-		# SHOT CHANNEL CDP CDPTRACE CDP_X CDP_Y OFFSET
-		f_header.write('%6i%4i%6i%4i%10i%10i%6i\n' % (line_df['shot'].iloc[i], j+1, record_cdp, record_cdptrace[i, j], cdp_en_dm[0], cdp_en_dm[1], offset))
+		for j in range(n_channels):
+			record_en = get_hydrophone_location(line_df, i, j + 1)
+			mp_en = (record_en + shot_en) / 2.0
+			mps_e[i, j] = mp_en[0]
+			mps_n[i, j] = mp_en[1]
+			
+			offset_estimates[i, j] = np.sqrt(sum((shot_en - record_en)**2))
 		
-		f_ahl.write(' %-6i %-6i %-6i %-4i %-10i %-10i %-6i\n' % (line_df['shot'].iloc[i], j+1, record_cdp, record_cdptrace[i, j], cdp_en_dm[0], cdp_en_dm[1], offset))
+	print('6\tFitting CDP spline...')
 
-f_header.close()
-f_ahl.close()
+	# Fit a spline along the middle channel
+	pts = np.vstack((mps_e[:, n_channels//2].flatten(), mps_n[:, n_channels//2].flatten()))
+	s_spl = n_shots / 100.0
+	(tck, u_eval), fp, ier, msg = splprep(pts, u=None, per=0, k=3, full_output=True, s = s_spl)
+	print('\tSpline fit score is %.3f' % fp) 
+	cdp_e_eval, cdp_n_eval = splev(u_eval, tck, der=0)
 
-plt.figure()
+	cdp_length = get_line_length(cdp_e_eval, cdp_n_eval)
 
-plt.imshow(np.transpose(record_cdps), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
-plt.title('CDP bins')
-plt.colorbar()
+	print('\tCDP spline is %.0fm long' % cdp_length)
 
-plt.figure()
+	u_cdp = np.arange(0.0, 1.0, cdp_spacing / cdp_length)
+	n_cdps = len(u_cdp)
+	cdps = range(1, n_cdps + 1)
+	cdp_fold = np.empty_like(cdps)
+	cdp_e, cdp_n = splev(u_cdp, tck, der=0)
 
-plt.imshow(np.transpose(offsets_direct - offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
-plt.title('Offset Discrepancy')
-plt.colorbar()
+	print('7\tBinning shots into CDPs...')
 
-plt.figure()
+	record_cdp_indices = np.zeros_like(mps_e, dtype=int)
+	record_cdps = np.zeros_like(mps_e, dtype=int)
+	cdp_tracecount = np.zeros_like(cdps, dtype=int)
+	record_cdptrace = np.zeros_like(mps_e, dtype=int)
+	offset_final = np.zeros_like(mps_e, dtype=int)
 
-plt.imshow(np.transpose(offsets_direct), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
-plt.title('Direct Arrival Offsets')
-plt.colorbar()
+	for i in range(n_shots):
+		shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
 
-plt.figure()
+		for j in range(n_channels):
+			# Get the midpoint for the record
+			record_en = np.array([mps_e[i, j], mps_n[i, j]])
+		
+			# If a direct arrival has been picked, update the midpoint location
+			if not np.isnan(offsets_direct[i, j]):
+				# Move the record along the line between it and the shotpoint to correct for the offset
+				record_en = shot_en + (record_en - shot_en) * (offsets_direct[i, j] / offset_estimates[i, j])
 
-plt.imshow(np.transpose(offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
-plt.title('Estimated Offsets')
-plt.colorbar()
+				offset_final[i, j] = -int(offsets_direct[i, j] * 10)
+			else:
+				offset_final[i, j] = -int(offset_estimates[i, j] * 10)
 
-plt.figure()
+			cdp_distance_e = cdp_e - record_en[0]
+			cdp_distance_n = cdp_n - record_en[1]
 
-plt.plot(cdps, cdp_fold)
-plt.title('CDP fold')
+			cdp_distances = np.sqrt(cdp_distance_e**2 + cdp_distance_n**2)
 
-plt.figure()
+			record_cdp_indices[i, j] = np.argmin(cdp_distances)
+			record_cdps[i, j] = cdps[record_cdp_indices[i, j]]
 
-plt.plot(mps_e.flatten(), mps_n.flatten(), 'k.', label='MPs')
-plt.plot(line_df['easting_filt'], line_df['northing_filt'], 'b.', label='Nav points')
-plt.plot(line_df['boomer_e'], line_df['boomer_n'], 'g.', label='Gun points')
-plt.plot(line_df['streamer_e'], line_df['streamer_n'], 'r.', label='Streamer points')
-plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
-plt.scatter(cdp_e[1:-1], cdp_n[1:-1], c = cdp_fold[1:-1], label='CDPs')
-plt.colorbar()
+			cdp_tracecount[record_cdp_indices[i, j]] = cdp_tracecount[record_cdp_indices[i, j]] + 1
+			record_cdptrace[i, j] = cdp_tracecount[record_cdp_indices[i, j]]
 
-plt.legend()
-plt.grid('on')
-plt.axis('equal')
-plt.show()
+	print('8\tCalculating fold...')
 
-plt.figure()
+	for i in range(n_cdps):
+		cdp_fold[i] = np.sum((record_cdps == cdps[i]).flatten())
 
-plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
-plt.scatter(cdp_e[1:-1], cdp_n[1:-1], c = cdp_fold[1:-1], label='CDPs')
-plt.colorbar()
+	print('9\tWriting out *.ahl file...')
 
-plt.legend()
-plt.grid('on')
-plt.axis('equal')
-plt.show()
+	f_acd = open('%s/line%s.acd' % (header_out_dir, line_number), 'w')
 
+	f_acd.write('''\
+	|Header name  |Key|FirstCol|LastCol|Scalar |Adder  |FillMode|Comment          |
+	SHOTID        P   1        6                                                  
+	CHANNEL       S   7        10                                                 
+	CDP               11       16                                                 
+	CDPTRACE          17       20                                                 
+	CDP_X             21       30                                                 
+	CDP_Y             31       40                                                 
+	OFFSET            41       46                                                 ''')
+
+	f_acd.close()
+
+	f_header = open('%s/line%s.txt' % (header_out_dir, line_number), 'w')
+	f_ahl = open('%s/line%s.ahl' % (header_out_dir, line_number), 'w')
+
+	f_ahl.write('''\
+	ADDHDR
+	Primary key : SHOTID
+	Secondary key : CHANNEL
+	Interpolation key : 
+	Add geometry from PYTHON script\n\
+	''')
+	f_ahl.write('|Pkey  |Skey  |X1    |X2  |X3        |X4        |X5    |\n')
+
+	for i in range(n_shots):
+		for j in range(n_channels):
+			record_cdp = record_cdps[i, j]
+			record_cdp_index = record_cdp_indices[i, j]
+			cdp_en = np.array([cdp_e[record_cdp_index], cdp_n[record_cdp_index]])
+			cdp_en_dm = np.rint(cdp_en * 10.0).astype(int)
+
+			# SHOT CHANNEL CDP CDPTRACE CDP_X CDP_Y OFFSET
+			f_header.write('%6i%4i%6i%4i%10i%10i%6i\n' % (line_df['shot'].iloc[i], j+1, record_cdp, record_cdptrace[i, j], cdp_en_dm[0], cdp_en_dm[1], offset_final[i, j]))
+			
+			f_ahl.write(' %-6i %-6i %-6i %-4i %-10i %-10i %-6i\n' % (line_df['shot'].iloc[i], j+1, record_cdp, record_cdptrace[i, j], cdp_en_dm[0], cdp_en_dm[1], offset_final[i, j]))
+
+	f_header.close()
+	f_ahl.close()
+
+
+	if args.plot:
+		plt.figure()
+
+		plt.imshow(np.transpose(record_cdps), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
+		plt.title('CDP bins')
+		plt.colorbar()
+
+		plt.figure()
+
+		plt.imshow(np.transpose(offsets_direct - offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
+		plt.title('Offset Discrepancy')
+		plt.colorbar()
+
+		plt.figure()
+
+		plt.imshow(np.transpose(offsets_direct), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
+		plt.title('Direct Arrival Offsets')
+		plt.colorbar()
+
+		plt.figure()
+
+		plt.imshow(np.transpose(offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
+		plt.title('Estimated Offsets')
+		plt.colorbar()
+
+		plt.figure()
+
+		plt.plot(cdps, cdp_fold)
+		plt.title('CDP fold')
+
+		plt.figure()
+
+		plt.plot(mps_e.flatten(), mps_n.flatten(), 'k.', label='MPs')
+		plt.plot(line_df['easting_filt'], line_df['northing_filt'], 'b.', label='Nav points')
+		plt.plot(line_df['boomer_e'], line_df['boomer_n'], 'g.', label='Gun points')
+		plt.plot(line_df['streamer_e'], line_df['streamer_n'], 'r.', label='Streamer points')
+		plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
+		plt.scatter(cdp_e[1:-1], cdp_n[1:-1], c = cdp_fold[1:-1], label='CDPs')
+		plt.colorbar()
+
+		plt.legend()
+		plt.grid('on')
+		plt.axis('equal')
+		plt.show()
+
+		plt.figure()
+
+		plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
+		plt.scatter(cdp_e[1:-1], cdp_n[1:-1], c = cdp_fold[1:-1], label='CDPs')
+		plt.colorbar()
+
+		plt.legend()
+		plt.grid('on')
+		plt.axis('equal')
+		plt.show()
+
+if __name__ == "__main__":
+    main()
