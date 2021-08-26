@@ -19,6 +19,8 @@ import pandas as pd
 import re
 import sys
 
+from progress_bar import *
+
 from scipy.interpolate import splprep, splev
 
 class PicReaderState(enum.Enum):
@@ -225,15 +227,20 @@ def read_offsets(f, first_shot, n_shots, n_channels, c = 1500.0):
 def main():
 	argparser = argparse.ArgumentParser()
 
-	argparser.add_argument('in', metavar='in', help='path for the input navigation file')	
-	argparser.add_argument('out', metavar='out', help='path for the output header file')	
+	argparser.add_argument('file_in', metavar='IN', help='path for the input navigation file')	
+	argparser.add_argument('file_out', metavar='OUT', help='path for the output header file')	
 
 	argparser.add_argument('--epsg-in', dest='epsg_in', help='EPSG code for the input coordinate system (default: 4326)', type=int, default=4326)
 	argparser.add_argument('--epsg-out', dest='epsg_out', help='EPSG code for the output coordinate system (default: 2193)', type=int, default=2193)
 	argparser.add_argument('--direct', dest='file_direct', help='path for the picked direct arrivals')
 	argparser.add_argument('--plot', action='store_true', help='turn on plotting')
+	argparser.add_argument('--verbose', action='store_true', help='turn on verbose output')
 
 	args = argparser.parse_args()
+	
+	direct_enabled = args.file_direct is not None
+	verbose_enabled = args.verbose
+	plotting_enabled = args.plot
 
 	# spatial reference system
 	input_EPSG = args.epsg_in
@@ -268,10 +275,7 @@ def main():
 	# CDP spacing
 	cdp_spacing = 2.0
 
-	line_number = "0004"
-
-	line_df = pd.read_csv((nav_dir + "/line%s.Nav_parsed.txt") % line_number, sep='\s+', names = ['shot', 'lon_deg', 'lon_min', 'lon_ew', 'lat_deg', 'lat_min', 'lat_ns', 'time'], skiprows=1)
-	line_offsets_f = open((offset_dir + "/line%s.pic") % line_number)
+	line_df = pd.read_csv(args.file_in, sep='\s+', names = ['shot', 'lon_deg', 'lon_min', 'lon_ew', 'lat_deg', 'lat_min', 'lat_ns', 'time'], skiprows=1)
 
 	n_shots = len(line_df.index)
 	n_records = n_shots * n_channels
@@ -279,14 +283,31 @@ def main():
 	first_shot = line_df['shot'].iloc[0]
 	last_shot = line_df['shot'].iloc[-1]
 	
-	print('1\tReading direct arrivals...')
+	if direct_enabled:
+		if verbose_enabled:
+			print('1\tReading direct arrivals...')
+		else:
+			progressbar(1, 9)
 
-	offsets_direct = read_offsets(line_offsets_f, first_shot, n_shots, n_channels)
+		line_offsets_f = open(args.file_direct)
+
+		offsets_direct = read_offsets(line_offsets_f, first_shot, n_shots, n_channels)
+
+		line_offsets_f.close()
+	else:
+		if verbose_enabled:
+			print('1\tSkipping direct arrivals (not specified)')
+		else:
+			progressbar(1, 9)
 
 	line_df['lon_dd'] = line_df['lon_deg'] + line_df['lon_min'] / 60
 	line_df['lat_dd'] = -(line_df['lat_deg'] + line_df['lat_min'] / 60)
 
-	print('2\tReprojecting shotpoint coordinates from EPSG:%i to EPSG:%i...' % (input_EPSG, output_EPSG))
+
+	if verbose_enabled:
+		print('2\tReprojecting shotpoint coordinates from EPSG:%i to EPSG:%i...' % (input_EPSG, output_EPSG))
+	else:
+		progressbar(2, 9)
 
 	for new_col in ['easting', 'northing', 'heading', 'boomer_e', 'boomer_n', 'streamer_e', 'streamer_n']:
 		line_df[new_col] = pd.Series(dtype=float)
@@ -302,7 +323,10 @@ def main():
 	line_df['easting_filt'] = line_df['easting'].rolling(5, center=True, min_periods=1).mean()
 	line_df['northing_filt'] = line_df['northing'].rolling(5, center=True, min_periods=1).mean()
 
-	print('3\tCalculating heading...')
+	if verbose_enabled:
+		print('3\tCalculating heading...')
+	else:
+		progressbar(3, 9)
 
 	for i in range(1, n_shots):
 		diff_x = line_df['easting_filt'].iloc[i] - line_df['easting_filt'].iloc[i - 1]
@@ -312,7 +336,10 @@ def main():
 
 	line_df.ix[0, 'heading'] = line_df.ix[1, 'heading']
 
-	print('4\tCalculating boomer, streamer locations...')
+	if verbose_enabled:
+		print('4\tCalculating boomer, streamer locations...')
+	else:
+		progressbar(4, 9)	
 
 	for i in range(n_shots):
 		boomer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), boomer_offset)
@@ -329,7 +356,10 @@ def main():
 	mps_n = np.empty_like(mps_e)
 	offset_estimates = np.empty_like(mps_e)
 
-	print('5\tCalculating CMP locations...')
+	if verbose_enabled:
+		print('5\tCalculating CMP locations...')
+	else:
+		progressbar(5, 9)	
 
 	for i in range(n_shots):
 		shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
@@ -342,18 +372,25 @@ def main():
 			
 			offset_estimates[i, j] = np.sqrt(sum((shot_en - record_en)**2))
 		
-	print('6\tFitting CDP spline...')
+	if verbose_enabled:
+		print('6\tFitting CDP spline...')
+	else:
+		progressbar(6, 9)	
 
 	# Fit a spline along the middle channel
 	pts = np.vstack((mps_e[:, n_channels//2].flatten(), mps_n[:, n_channels//2].flatten()))
 	s_spl = n_shots / 100.0
 	(tck, u_eval), fp, ier, msg = splprep(pts, u=None, per=0, k=3, full_output=True, s = s_spl)
-	print('\tSpline fit score is %.3f' % fp) 
+
+	if verbose_enabled:
+		print('\tSpline fit score is %.3f' % fp) 
+
 	cdp_e_eval, cdp_n_eval = splev(u_eval, tck, der=0)
 
 	cdp_length = get_line_length(cdp_e_eval, cdp_n_eval)
 
-	print('\tCDP spline is %.0fm long' % cdp_length)
+	if verbose_enabled:
+		print('\tCDP spline is %.0fm long' % cdp_length)
 
 	u_cdp = np.arange(0.0, 1.0, cdp_spacing / cdp_length)
 	n_cdps = len(u_cdp)
@@ -361,7 +398,10 @@ def main():
 	cdp_fold = np.empty_like(cdps)
 	cdp_e, cdp_n = splev(u_cdp, tck, der=0)
 
-	print('7\tBinning shots into CDPs...')
+	if verbose_enabled:
+		print('7\tBinning shots into CDPs...')
+	else:
+		progressbar(7, 9)	
 
 	record_cdp_indices = np.zeros_like(mps_e, dtype=int)
 	record_cdps = np.zeros_like(mps_e, dtype=int)
@@ -377,13 +417,16 @@ def main():
 			record_en = np.array([mps_e[i, j], mps_n[i, j]])
 		
 			# If a direct arrival has been picked, update the midpoint location
-			if not np.isnan(offsets_direct[i, j]):
-				# Move the record along the line between it and the shotpoint to correct for the offset
-				record_en = shot_en + (record_en - shot_en) * (offsets_direct[i, j] / offset_estimates[i, j])
-
-				offset_final[i, j] = -int(offsets_direct[i, j] * 10)
-			else:
+			if not direct_enabled:
 				offset_final[i, j] = -int(offset_estimates[i, j] * 10)
+			else:
+				if np.isnan(offsets_direct[i, j]):
+					# Move the record along the line between it and the shotpoint to correct for the offset
+					record_en = shot_en + (record_en - shot_en) * (offsets_direct[i, j] / offset_estimates[i, j])
+
+					offset_final[i, j] = -int(offsets_direct[i, j] * 10)
+				else:
+					offset_final[i, j] = -int(offset_estimates[i, j] * 10)
 
 			cdp_distance_e = cdp_e - record_en[0]
 			cdp_distance_n = cdp_n - record_en[1]
@@ -396,29 +439,21 @@ def main():
 			cdp_tracecount[record_cdp_indices[i, j]] = cdp_tracecount[record_cdp_indices[i, j]] + 1
 			record_cdptrace[i, j] = cdp_tracecount[record_cdp_indices[i, j]]
 
-	print('8\tCalculating fold...')
+	if verbose_enabled:
+		print('8\tCalculating fold...')
+	else:
+		progressbar(8, 9)	
 
 	for i in range(n_cdps):
 		cdp_fold[i] = np.sum((record_cdps == cdps[i]).flatten())
 
-	print('9\tWriting out *.ahl file...')
 
-	f_acd = open('%s/line%s.acd' % (header_out_dir, line_number), 'w')
+	if verbose_enabled:
+		print('9\tWriting out *.ahl file...')
+	else:
+		progressbar(9, 9)
 
-	f_acd.write('''\
-	|Header name  |Key|FirstCol|LastCol|Scalar |Adder  |FillMode|Comment          |
-	SHOTID        P   1        6                                                  
-	CHANNEL       S   7        10                                                 
-	CDP               11       16                                                 
-	CDPTRACE          17       20                                                 
-	CDP_X             21       30                                                 
-	CDP_Y             31       40                                                 
-	OFFSET            41       46                                                 ''')
-
-	f_acd.close()
-
-	f_header = open('%s/line%s.txt' % (header_out_dir, line_number), 'w')
-	f_ahl = open('%s/line%s.ahl' % (header_out_dir, line_number), 'w')
+	f_ahl = open(args.file_out, 'w')
 
 	f_ahl.write('''\
 	ADDHDR
@@ -436,16 +471,13 @@ def main():
 			cdp_en = np.array([cdp_e[record_cdp_index], cdp_n[record_cdp_index]])
 			cdp_en_dm = np.rint(cdp_en * 10.0).astype(int)
 
-			# SHOT CHANNEL CDP CDPTRACE CDP_X CDP_Y OFFSET
-			f_header.write('%6i%4i%6i%4i%10i%10i%6i\n' % (line_df['shot'].iloc[i], j+1, record_cdp, record_cdptrace[i, j], cdp_en_dm[0], cdp_en_dm[1], offset_final[i, j]))
-			
 			f_ahl.write(' %-6i %-6i %-6i %-4i %-10i %-10i %-6i\n' % (line_df['shot'].iloc[i], j+1, record_cdp, record_cdptrace[i, j], cdp_en_dm[0], cdp_en_dm[1], offset_final[i, j]))
 
-	f_header.close()
 	f_ahl.close()
 
+	print()
 
-	if args.plot:
+	if plotting_enabled:
 		plt.figure()
 
 		plt.imshow(np.transpose(record_cdps), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
