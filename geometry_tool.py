@@ -484,12 +484,12 @@ def main():
 
 	# Write the preamble to the CLARITAS header file
 	f_ahl.write('''\
-	ADDHDR
-	Primary key : SHOTID
-	Secondary key : CHANNEL
-	Interpolation key : 
-	Add geometry from PYTHON script\n\
-	''')
+ADDHDR
+Primary key : SHOTID
+Secondary key : CHANNEL
+Interpolation key : 
+Add geometry from PYTHON script\n\
+''')
 	f_ahl.write('|Pkey  |Skey  |X1    |X2  |X3        |X4        |X5    |\n')
 
 	for i in range(n_shots):
@@ -503,37 +503,46 @@ def main():
 
 	f_ahl.close()
 
-	print()
-
 	if plotting_enabled:
+		plt.ioff()
+		
 		plt.figure()
 
 		plt.imshow(np.transpose(record_cdps), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
 		plt.title('CDP bins')
 		plt.colorbar()
+		plt.savefig('cdp_bins.eps')
+
+		if direct_enabled:
+			plt.figure()
+
+			plt.imshow(np.transpose(offsets_direct - offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
+			plt.title('Offset Discrepancy')
+			plt.colorbar()
+
+			plt.savefig('offset_discrepancy.eps')
+
+			plt.figure()
+
+			plt.imshow(np.transpose(offsets_direct), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
+			plt.title('Direct Arrival Offsets')
+			plt.colorbar()
+
+			plt.savefig('offset_direct.eps')
 
 		plt.figure()
-
-		plt.imshow(np.transpose(offsets_direct - offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
-		plt.title('Offset Discrepancy')
-		plt.colorbar()
-
-		plt.figure()
-
-		plt.imshow(np.transpose(offsets_direct), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
-		plt.title('Direct Arrival Offsets')
-		plt.colorbar()
-
-		plt.figure()
-
 		plt.imshow(np.transpose(offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
 		plt.title('Estimated Offsets')
 		plt.colorbar()
+
+		plt.savefig('offset_estimate.eps')
 
 		plt.figure()
 
 		plt.plot(cdps, cdp_fold)
 		plt.title('CDP fold')
+
+		plt.savefig('cdp_fold.eps')
 
 		plt.figure()
 
@@ -548,8 +557,9 @@ def main():
 		plt.legend()
 		plt.grid('on')
 		plt.axis('equal')
-		plt.show()
 
+		plt.savefig('line_map.eps')
+		
 		plt.figure()
 
 		plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
@@ -559,7 +569,11 @@ def main():
 		plt.legend()
 		plt.grid('on')
 		plt.axis('equal')
+
+		plt.savefig('cdp_map.eps')
 		plt.show()
+
+	print()
 
 if __name__ == "__main__":
     main()
