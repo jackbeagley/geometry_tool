@@ -231,11 +231,11 @@ def main():
 	argparser.add_argument('file_in', metavar='IN', help='path for the input navigation file')	
 	argparser.add_argument('file_out', metavar='OUT', help='path for the output header file')	
 
-	argparser.add_argument('--epsg-in', dest='epsg_in', help='EPSG code for the input coordinate system (default: 4326)', type=int, default=4326)
-	argparser.add_argument('--epsg-out', dest='epsg_out', help='EPSG code for the output coordinate system (default: 2193)', type=int, default=2193)
-	argparser.add_argument('--direct', dest='file_direct', help='path for the picked direct arrivals')
-	argparser.add_argument('--plot', action='store_true', help='turn on plotting')
-	argparser.add_argument('--verbose', action='store_true', help='turn on verbose output')
+	argparser.add_argument('-ei', '--epsg-in', dest='epsg_in', help='EPSG code for the input coordinate system (default: 4326)', type=int, default=4326)
+	argparser.add_argument('-eo', '--epsg-out', dest='epsg_out', help='EPSG code for the output coordinate system (default: 2193)', type=int, default=2193)
+	argparser.add_argument('-d', '--direct', dest='file_direct', help='path for the picked direct arrivals')
+	argparser.add_argument('-p', '--plot', action='store_true', help='turn on plotting')
+	argparser.add_argument('-v', '--verbose', action='store_true', help='turn on verbose output')
 
 	args = argparser.parse_args()
 	
