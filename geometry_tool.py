@@ -15,6 +15,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import ogr, osr
+import os
 import pandas as pd
 import re
 import sys
@@ -273,7 +274,8 @@ def main():
 	n_channels = 24
 
 	# CDP spacing
-	cdp_spacing = 2.0
+	#cdp_spacing = 2.0
+	cdp_spacing = streamer_spacing / 2
 
 	# Read in the specified NAV file
 	line_df = pd.read_csv(args.file_in, sep='\s+', names = ['shot', 'lon_deg', 'lon_min', 'lon_ew', 'lat_deg', 'lat_min', 'lat_ns', 'time'], skiprows=1)
@@ -440,7 +442,7 @@ def main():
 			if not direct_enabled:
 				offset_final[i, j] = -int(offset_estimates[i, j] * 10)
 			else:
-				if np.isnan(offsets_direct[i, j]):
+				if not np.isnan(offsets_direct[i, j]):
 					# Move the record along the line between it and the shotpoint to correct for the offset
 					record_en = shot_en + (record_en - shot_en) * (offsets_direct[i, j] / offset_estimates[i, j])
 
