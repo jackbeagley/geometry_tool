@@ -1,2 +1,4 @@
 progress_bar.py
 *.pyc
+*.eps
+*.pdf
