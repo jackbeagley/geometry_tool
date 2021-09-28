@@ -85,17 +85,21 @@ def get_hydrophone_location(df, i, channel, channel_spacing = 3.125):
 	# To keep track of the streamer offset as we trace back along the streamer
 	current_streamer_offset = 0.0
 
+	streamer_e = df['streamer_e'].to_numpy()
+	streamer_n = df['streamer_n'].to_numpy()
+	heading = df['heading'].to_numpy()
+
 	while (j >= 1):
 		# Calculate the spacing between subsequent streamer locations
-		streamer_spacing = math.sqrt((df['streamer_e'].iloc[j] - df['streamer_e'].iloc[j - 1]) ** 2 + (df['streamer_n'].iloc[j] - df['streamer_n'].iloc[j - 1]) ** 2)
+		streamer_spacing = math.sqrt((streamer_e[j] - streamer_e[j - 1]) ** 2 + (streamer_n[j] - streamer_n[j - 1]) ** 2)
 		
 		# Determine if the hydrophone is within this interval or not
 		if (current_streamer_offset + streamer_spacing) > streamer_offset:
 			# Calculate where in this interval (as a ratio) the hydrophone is
 			x = (streamer_offset - current_streamer_offset) / streamer_spacing
 			
-			hydrophone_location_e = df['streamer_e'].iloc[j] * (1 - x) + df['streamer_e'].iloc[j - 1] * x
-			hydrophone_location_n = df['streamer_n'].iloc[j] * (1 - x) + df['streamer_n'].iloc[j - 1] * x
+			hydrophone_location_e = streamer_e[j] * (1 - x) + streamer_e[j - 1] * x
+			hydrophone_location_n = streamer_n[j] * (1 - x) + streamer_n[j - 1] * x
 
 			# Return the location
 			return np.array([hydrophone_location_e, hydrophone_location_n])
@@ -108,8 +112,8 @@ def get_hydrophone_location(df, i, channel, channel_spacing = 3.125):
 	remaining_offset = streamer_offset - current_streamer_offset
 
 	# Use the heading at the start of the survey to project back an estimated location of the hydrophone
-	hydrophone_location_e = df['streamer_e'].iloc[0] + remaining_offset * math.sin(math.radians(df['heading'].iloc[0] - 180.0))
-	hydrophone_location_n = df['streamer_n'].iloc[0] + remaining_offset * math.cos(math.radians(df['heading'].iloc[0] - 180.0))
+	hydrophone_location_e = streamer_e[0] + remaining_offset * math.sin(math.radians(heading[0] - 180.0))
+	hydrophone_location_n = streamer_n[0] + remaining_offset * math.cos(math.radians(heading[0] - 180.0))
 
 	# Return the location
 	return np.array([hydrophone_location_e, hydrophone_location_n])
@@ -325,8 +329,8 @@ def main():
 		shotpoint.AddPoint(line_df['lon_dd'].iloc[i], line_df['lat_dd'].iloc[i])
 		shotpoint.Transform(coord_transform)
 
-		line_df.ix[i,'easting'] = shotpoint.GetX()
-		line_df.ix[i,'northing'] = shotpoint.GetY()
+		line_df.loc[i,'easting'] = shotpoint.GetX()
+		line_df.loc[i,'northing'] = shotpoint.GetY()
 
 	# Take a moving average of the NAV points
 	line_df['easting_filt'] = line_df['easting'].rolling(5, center=True, min_periods=1).mean()
@@ -342,10 +346,10 @@ def main():
 		diff_x = line_df['easting_filt'].iloc[i] - line_df['easting_filt'].iloc[i - 1]
 		diff_y = line_df['northing_filt'].iloc[i] - line_df['northing_filt'].iloc[i - 1]
 
-		line_df.ix[i, 'heading'] = (math.degrees(math.atan2(diff_x, diff_y)) + 360.0) % 360.0
+		line_df.loc[i, 'heading'] = (math.degrees(math.atan2(diff_x, diff_y)) + 360.0) % 360.0
 
 	# Set the first heading as the same as the second
-	line_df.ix[0, 'heading'] = line_df.ix[1, 'heading']
+	line_df.loc[0, 'heading'] = line_df.loc[1, 'heading']
 
 	if verbose_enabled:
 		print('4\tCalculating boomer, streamer locations...')
@@ -358,11 +362,11 @@ def main():
 		boomer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), boomer_offset)
 		streamer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), streamer_offset)
 		
-		line_df.ix[i, 'boomer_e'] = line_df['easting_filt'].iloc[i] + boomer_offset_rotated[0]
-		line_df.ix[i, 'boomer_n'] = line_df['northing_filt'].iloc[i] + boomer_offset_rotated[1]
+		line_df.loc[i, 'boomer_e'] = line_df['easting_filt'].iloc[i] + boomer_offset_rotated[0]
+		line_df.loc[i, 'boomer_n'] = line_df['northing_filt'].iloc[i] + boomer_offset_rotated[1]
 
-		line_df.ix[i, 'streamer_e'] = line_df['easting_filt'].iloc[i] + streamer_offset_rotated[0]
-		line_df.ix[i, 'streamer_n'] = line_df['northing_filt'].iloc[i] + streamer_offset_rotated[1]
+		line_df.loc[i, 'streamer_e'] = line_df['easting_filt'].iloc[i] + streamer_offset_rotated[0]
+		line_df.loc[i, 'streamer_n'] = line_df['northing_filt'].iloc[i] + streamer_offset_rotated[1]
 
 	# Make arrays for midpoints
 	mps_e = np.empty((n_shots, n_channels))
@@ -376,7 +380,8 @@ def main():
 
 	# Retrace the hydrophone channel locations for each shot
 	for i in range(n_shots):
-		shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
+		shot_en = np.array([line_df.loc[i, 'boomer_e'], line_df.loc[i, 'boomer_n']])
+		print(i)
 
 		for j in range(n_channels):
 			record_en = get_hydrophone_location(line_df, i, j + 1)
@@ -384,7 +389,7 @@ def main():
 			mps_e[i, j] = mp_en[0]
 			mps_n[i, j] = mp_en[1]
 			
-			offset_estimates[i, j] = np.sqrt(sum((shot_en - record_en)**2))
+			offset_estimates[i, j] = math.sqrt(sum((shot_en - record_en)**2))
 		
 	if verbose_enabled:
 		print('6\tFitting CDP spline...')
@@ -432,7 +437,7 @@ def main():
 	offset_final = np.zeros_like(mps_e, dtype=int)
 
 	for i in range(n_shots):
-		shot_en = np.array([line_df.ix[i, 'boomer_e'], line_df.ix[i, 'boomer_n']])
+		shot_en = np.array([line_df.loc[i, 'boomer_e'], line_df.loc[i, 'boomer_n']])
 
 		for j in range(n_channels):
 			# Get the midpoint for the record
