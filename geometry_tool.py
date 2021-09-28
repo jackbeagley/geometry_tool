@@ -142,7 +142,7 @@ def get_line_length(x, y):
 
 def read_offsets(f, first_shot, n_shots, n_channels, c = 1500.0):
 	"""
-	Read direct arricals from a .pic file (output by CLARITAS), convert
+	Read direct arrivals from a .pic file (output by CLARITAS), convert
 	to offsets using a specified speed of sound and output to a
 	2D numpy array
 
