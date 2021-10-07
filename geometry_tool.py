@@ -330,21 +330,21 @@ def main():
 		progressbar(2, 9)
 
 	# Create new columns in the dataframe
-	for new_col in ['easting', 'northing', 'heading', 'boomer_e', 'boomer_n', 'streamer_e', 'streamer_n']:
+	for new_col in ['nav_e', 'nav_n', 'heading', 'boomer_e', 'boomer_n', 'streamer_e', 'streamer_n']:
 		line_df[new_col] = pd.Series(dtype=float)
 
 	# Transform the coordinates of all the points using OGR
 	for i in range(n_shots):
-		shotpoint = ogr.Geometry(ogr.wkbPoint)
-		shotpoint.AddPoint(line_df['lon_dd'].iloc[i], line_df['lat_dd'].iloc[i])
-		shotpoint.Transform(coord_transform)
+		navpoint = ogr.Geometry(ogr.wkbPoint)
+		navpoint.AddPoint(line_df['lon_dd'].iloc[i], line_df['lat_dd'].iloc[i])
+		navpoint.Transform(coord_transform)
 
-		line_df.loc[i,'easting'] = shotpoint.GetX()
-		line_df.loc[i,'northing'] = shotpoint.GetY()
+		line_df.loc[i,'nav_e'] = navpoint.GetX()
+		line_df.loc[i,'nav_n'] = navpoint.GetY()
 
 	# Take a moving average of the NAV points
-	line_df['easting_filt'] = line_df['easting'].rolling(5, center=True, min_periods=1).mean()
-	line_df['northing_filt'] = line_df['northing'].rolling(5, center=True, min_periods=1).mean()
+	line_df['nav_e_filt'] = line_df['nav_e'].rolling(5, center=True, min_periods=1).mean()
+	line_df['nav_n_filt'] = line_df['nav_n'].rolling(5, center=True, min_periods=1).mean()
 
 	if verbose_enabled:
 		print('3\tCalculating heading...')
@@ -353,12 +353,12 @@ def main():
 
 	# Calculate the heading using backwards differencing
 	for i in range(1, n_shots):
-		diff_x = line_df['easting_filt'].iloc[i] - line_df['easting_filt'].iloc[i - 1]
-		diff_y = line_df['northing_filt'].iloc[i] - line_df['northing_filt'].iloc[i - 1]
+		diff_x = line_df['nav_e_filt'].iloc[i] - line_df['nav_e_filt'].iloc[i - 1]
+		diff_y = line_df['nav_n_filt'].iloc[i] - line_df['nav_n_filt'].iloc[i - 1]
 
 		line_df.loc[i, 'heading'] = (math.degrees(math.atan2(diff_x, diff_y)) + 360.0) % 360.0
 
-	# Set the first heading as the same as the second
+	# Set the first heading as the same as the second (it can't be calculated otherwise)
 	line_df.loc[0, 'heading'] = line_df.loc[1, 'heading']
 
 	if verbose_enabled:
@@ -366,17 +366,17 @@ def main():
 	else:
 		progressbar(4, 9)	
 
-	# Use a rotation matrix to convert the boomer, streamer coordinates to the
+	# Use a rotation matrix to convert the boomer, streamer coordinates
 	# onto the local coordinate system
 	for i in range(n_shots):
 		boomer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), boomer_offset)
 		streamer_offset_rotated = np.matmul(rotation_matrix(line_df['heading'].iloc[i]), streamer_offset)
 		
-		line_df.loc[i, 'boomer_e'] = line_df['easting_filt'].iloc[i] + boomer_offset_rotated[0]
-		line_df.loc[i, 'boomer_n'] = line_df['northing_filt'].iloc[i] + boomer_offset_rotated[1]
+		line_df.loc[i, 'boomer_e'] = line_df['nav_e_filt'].iloc[i] + boomer_offset_rotated[0]
+		line_df.loc[i, 'boomer_n'] = line_df['nav_n_filt'].iloc[i] + boomer_offset_rotated[1]
 
-		line_df.loc[i, 'streamer_e'] = line_df['easting_filt'].iloc[i] + streamer_offset_rotated[0]
-		line_df.loc[i, 'streamer_n'] = line_df['northing_filt'].iloc[i] + streamer_offset_rotated[1]
+		line_df.loc[i, 'streamer_e'] = line_df['nav_e_filt'].iloc[i] + streamer_offset_rotated[0]
+		line_df.loc[i, 'streamer_n'] = line_df['nav_n_filt'].iloc[i] + streamer_offset_rotated[1]
 
 	# Make arrays for midpoints
 	mps_e = np.empty((n_shots, n_channels))
@@ -566,7 +566,7 @@ Add geometry from PYTHON script\n\
 		plt.figure()
 
 		plt.plot(mps_e.flatten(), mps_n.flatten(), 'k.', label='MPs')
-		plt.plot(line_df['easting_filt'], line_df['northing_filt'], 'b.', label='Nav points')
+		plt.plot(line_df['nav_e_filt'], line_df['nav_n_filt'], 'b.', label='Nav points')
 		plt.plot(line_df['boomer_e'], line_df['boomer_n'], 'g.', label='Gun points')
 		plt.plot(line_df['streamer_e'], line_df['streamer_n'], 'r.', label='Streamer points')
 		plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
