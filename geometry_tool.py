@@ -253,11 +253,19 @@ def main():
 
 	# create coordinate transformation
 	in_spatial_ref = osr.SpatialReference()
+	# for GDAL > 3, change the mapping strategy to the old style
+	try:
 	in_spatial_ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+	except:
+		pass
 	in_spatial_ref.ImportFromEPSG(input_EPSG)
 
 	out_spatial_ref = osr.SpatialReference()
+	# for GDAL > 3, change the mapping strategy to the old style
+	try:
 	out_spatial_ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+	except:
+		pass
 	out_spatial_ref.ImportFromEPSG(output_EPSG)
 
 	coord_transform = osr.CoordinateTransformation(in_spatial_ref, out_spatial_ref)
