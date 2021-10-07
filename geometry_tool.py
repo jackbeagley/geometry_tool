@@ -255,7 +255,7 @@ def main():
 	in_spatial_ref = osr.SpatialReference()
 	# for GDAL > 3, change the mapping strategy to the old style
 	try:
-	in_spatial_ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+		in_spatial_ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 	except:
 		pass
 	in_spatial_ref.ImportFromEPSG(input_EPSG)
@@ -263,7 +263,7 @@ def main():
 	out_spatial_ref = osr.SpatialReference()
 	# for GDAL > 3, change the mapping strategy to the old style
 	try:
-	out_spatial_ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+		out_spatial_ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
 	except:
 		pass
 	out_spatial_ref.ImportFromEPSG(output_EPSG)
@@ -386,7 +386,10 @@ def main():
 	if verbose_enabled:
 		print('5\tCalculating CMP locations...')
 	else:
-		progressbar(5, 9)	
+		progressbar(5, 9)
+
+	records_e = np.empty_like(mps_e)
+	records_n = np.empty_like(mps_e)
 
 	# Retrace the hydrophone channel locations for each shot
 	for i in range(n_shots):
@@ -395,9 +398,15 @@ def main():
 		if verbose_enabled:
 			progressbar(i, n_shots)
 
+		# chan = j + 1
 		for j in range(n_channels):
 			record_en = get_hydrophone_location(line_df, i, j + 1)
+			records_e[i, j] = record_en[0]
+			records_n[i, j] = record_en[1]
+
+			# Midpoint is halfway between the record and the shot
 			mp_en = (record_en + shot_en) / 2.0
+
 			mps_e[i, j] = mp_en[0]
 			mps_n[i, j] = mp_en[1]
 			
