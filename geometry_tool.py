@@ -525,7 +525,8 @@ Add geometry from PYTHON script\n\
 
 			plt.imshow(np.transpose(offsets_direct - offset_estimates), cmap='hot', interpolation='nearest', aspect = 'auto', extent=(first_shot, last_shot, n_channels, 1))
 			plt.title('Offset Discrepancy')
-			plt.colorbar()
+			cbar = plt.colorbar()
+			cbar.set_label('Discrepancy [m]')
 
 			plt.savefig('offset_discrepancy.eps')
 
