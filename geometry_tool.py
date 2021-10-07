@@ -499,6 +499,7 @@ Secondary key : CHANNEL
 Interpolation key : 
 Add geometry from PYTHON script\n\
 ''')
+	#            shot   chan   CDP    traceeasting    northing   offset
 	f_ahl.write('|Pkey  |Skey  |X1    |X2  |X3        |X4        |X5    |\n')
 
 	for i in range(n_shots):
@@ -562,7 +563,6 @@ Add geometry from PYTHON script\n\
 		plt.plot(line_df['streamer_e'], line_df['streamer_n'], 'r.', label='Streamer points')
 		plt.plot(cdp_e, cdp_n, 'm-', label='CDP line')
 		plt.scatter(cdp_e[1:-1], cdp_n[1:-1], c = cdp_fold[1:-1], label='CDPs')
-		plt.colorbar()
 
 		plt.legend()
 		plt.grid('on')
