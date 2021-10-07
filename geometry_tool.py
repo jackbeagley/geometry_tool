@@ -383,7 +383,9 @@ def main():
 	# Retrace the hydrophone channel locations for each shot
 	for i in range(n_shots):
 		shot_en = np.array([line_df.loc[i, 'boomer_e'], line_df.loc[i, 'boomer_n']])
-		print(i)
+		
+		if verbose_enabled:
+			progressbar(i, n_shots)
 
 		for j in range(n_channels):
 			record_en = get_hydrophone_location(line_df, i, j + 1)
