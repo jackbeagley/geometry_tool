@@ -85,9 +85,9 @@ def get_hydrophone_location(df, i, channel, channel_spacing = 3.125):
 	# To keep track of the streamer offset as we trace back along the streamer
 	current_streamer_offset = 0.0
 
-	streamer_e = df['streamer_e'].to_numpy()
-	streamer_n = df['streamer_n'].to_numpy()
-	heading = df['heading'].to_numpy()
+	streamer_e = np.array(df['streamer_e'])
+	streamer_n = np.array(df['streamer_n'])
+	heading = np.array(df['heading'])
 
 	while (j >= 1):
 		# Calculate the spacing between subsequent streamer locations
